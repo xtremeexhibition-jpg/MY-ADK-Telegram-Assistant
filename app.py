@@ -158,8 +158,10 @@ runners, session_service = get_runners_and_session_service()
 
 async def generate_reply(session_id, affiliate_message, max_retries=2):
     content = types.Content(role="user", parts=[types.Part(text=affiliate_message)])
+    errors_log = []
 
     for runner in runners:
+        provider_name = runner.agent.name
         for attempt in range(max_retries + 1):
             try:
                 final_reply = ""
@@ -167,17 +169,19 @@ async def generate_reply(session_id, affiliate_message, max_retries=2):
                     if event.is_final_response() and event.content and event.content.parts:
                         final_reply = event.content.parts[0].text
                 if final_reply:
-                    return final_reply.strip()
+                    return final_reply.strip(), errors_log
+                errors_log.append(f"{provider_name}: returned empty response")
                 break
             except Exception as e:
+                errors_log.append(f"{provider_name}: {str(e)}")
                 error_str = str(e)
                 if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
-                    break  # quota issue — skip retries, jump to next provider
+                    break
                 if attempt < max_retries:
                     await asyncio.sleep(2)
                     continue
-                break  # exhausted retries on this provider — try next one
-    return ""
+                break
+    return "", errors_log
 
 async def ensure_session(session_id):
     await session_service.create_session(app_name=APP_NAME, user_id=USER_ID, session_id=session_id)
@@ -198,20 +202,22 @@ if st.button("Generate Reply"):
         session_id = affiliate_name.lower().replace(" ", "_")
 
         async def run_flow():
-            if session_id not in st.session_state.active_sessions:
-                await ensure_session(session_id)
-                st.session_state.active_sessions.add(session_id)
-            return await generate_reply(session_id, message)
+    if session_id not in st.session_state.active_sessions:
+        await ensure_session(session_id)
+        st.session_state.active_sessions.add(session_id)
+    return await generate_reply(session_id, message)
 
-        try:
-            reply = asyncio.run(run_flow())
-        except Exception as e:
-            st.error(f"⚠️ Request failed: {e}")
-            st.info("This is usually a temporary Gemini server issue — try again in a moment.")
-            reply = ""
+try:
+    reply, errors_log = asyncio.run(run_flow())
+except Exception as e:
+    st.error(f"⚠️ Request failed: {e}")
+    reply = ""
+    errors_log = []
 
-        if reply:
-            st.subheader(f"Reply to {affiliate_name}")
-            st.text_area("Ready to copy & paste", value=reply, height=250)
-        else:
-            st.warning("⚠️ No reply generated (model may have been overloaded). Try again.")
+if reply:
+    st.subheader(f"Reply to {affiliate_name}")
+    st.text_area("Ready to copy & paste", value=reply, height=250)
+else:
+    st.warning("⚠️ No reply generated. Debug info below:")
+    for err in errors_log:
+        st.error(err)
