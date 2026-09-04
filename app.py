@@ -136,7 +136,7 @@ root_agent_gemini = Agent(
 
 root_agent_deepseek = Agent(
     name="affiliate_reply_agent_deepseek",
-    model=LiteLlm(model="deepseek/deepseek-chat"),
+    model=LiteLlm(model="deepseek/deepseek-v4-flash"),
     description="Drafts replies to potential IQ Option affiliates.",
     instruction=agent_persona
 )
