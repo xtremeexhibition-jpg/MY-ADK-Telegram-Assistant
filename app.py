@@ -202,22 +202,22 @@ if st.button("Generate Reply"):
         session_id = affiliate_name.lower().replace(" ", "_")
 
         async def run_flow():
-    if session_id not in st.session_state.active_sessions:
-        await ensure_session(session_id)
-        st.session_state.active_sessions.add(session_id)
-    return await generate_reply(session_id, message)
+            if session_id not in st.session_state.active_sessions:
+                await ensure_session(session_id)
+                st.session_state.active_sessions.add(session_id)
+            return await generate_reply(session_id, message)
 
-try:
-    reply, errors_log = asyncio.run(run_flow())
-except Exception as e:
-    st.error(f"⚠️ Request failed: {e}")
-    reply = ""
-    errors_log = []
+        try:
+            reply, errors_log = asyncio.run(run_flow())
+        except Exception as e:
+            st.error(f"⚠️ Request failed: {e}")
+            reply = ""
+            errors_log = []
 
-if reply:
-    st.subheader(f"Reply to {affiliate_name}")
-    st.text_area("Ready to copy & paste", value=reply, height=250)
-else:
-    st.warning("⚠️ No reply generated. Debug info below:")
-    for err in errors_log:
-        st.error(err)
+        if reply:
+            st.subheader(f"Reply to {affiliate_name}")
+            st.text_area("Ready to copy & paste", value=reply, height=250)
+        else:
+            st.warning("⚠️ No reply generated. Debug info below:")
+            for err in errors_log:
+                st.error(err)
