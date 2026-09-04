@@ -5,9 +5,11 @@ from google.adk.agents import Agent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from google.adk.models.lite_llm import LiteLlm
 
 # ---------- Cell 2: API Key ----------
 os.environ["GOOGLE_API_KEY"] = st.secrets["GEMINI_API_KEY"]
+os.environ["DEEPSEEK_API_KEY"] = st.secrets["DEEPSEEK_API_KEY"]
 
 # ---------- Cell 3: Knowledge Base ----------
 faq_data = {
@@ -125,9 +127,16 @@ YOUR DIRECTIVE:
 7. STRICTLY adhere to the TONE RULES and MESSAGE LENGTH & FLOW RULES (Taglish, polite 'po', no emojis, no hyphens, short and relevant).
 """
 
-root_agent = Agent(
-    name="affiliate_reply_agent",
+root_agent_gemini = Agent(
+    name="affiliate_reply_agent_gemini",
     model="gemini-3.6-flash",
+    description="Drafts replies to potential IQ Option affiliates.",
+    instruction=agent_persona
+)
+
+root_agent_deepseek = Agent(
+    name="affiliate_reply_agent_deepseek",
+    model=LiteLlm(model="deepseek/deepseek-chat"),
     description="Drafts replies to potential IQ Option affiliates.",
     instruction=agent_persona
 )
@@ -137,29 +146,37 @@ APP_NAME = "iqoption_affiliate_agent"
 USER_ID = "manager_01"
 
 @st.cache_resource
-def get_runner_and_session_service():
+def get_runners_and_session_service():
     session_service = InMemorySessionService()
-    runner = Runner(agent=root_agent, app_name=APP_NAME, session_service=session_service)
-    return runner, session_service
+    runners = [
+        Runner(agent=root_agent_gemini, app_name=APP_NAME, session_service=session_service),
+        Runner(agent=root_agent_deepseek, app_name=APP_NAME, session_service=session_service),
+    ]
+    return runners, session_service
 
-runner, session_service = get_runner_and_session_service()
+runners, session_service = get_runners_and_session_service()
 
 async def generate_reply(session_id, affiliate_message, max_retries=2):
     content = types.Content(role="user", parts=[types.Part(text=affiliate_message)])
 
-    for attempt in range(max_retries + 1):
-        try:
-            final_reply = ""
-            async for event in runner.run_async(user_id=USER_ID, session_id=session_id, new_message=content):
-                if event.is_final_response() and event.content and event.content.parts:
-                    final_reply = event.content.parts[0].text
-            if final_reply:
-                return final_reply.strip()
-        except Exception as e:
-            if attempt < max_retries:
-                await asyncio.sleep(2)
-                continue
-            raise e
+    for runner in runners:
+        for attempt in range(max_retries + 1):
+            try:
+                final_reply = ""
+                async for event in runner.run_async(user_id=USER_ID, session_id=session_id, new_message=content):
+                    if event.is_final_response() and event.content and event.content.parts:
+                        final_reply = event.content.parts[0].text
+                if final_reply:
+                    return final_reply.strip()
+                break
+            except Exception as e:
+                error_str = str(e)
+                if "429" in error_str or "RESOURCE_EXHAUSTED" in error_str:
+                    break  # quota issue — skip retries, jump to next provider
+                if attempt < max_retries:
+                    await asyncio.sleep(2)
+                    continue
+                break  # exhausted retries on this provider — try next one
     return ""
 
 async def ensure_session(session_id):
